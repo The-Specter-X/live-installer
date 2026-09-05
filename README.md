@@ -2,12 +2,12 @@
 
 Installer of the Opinionated Distro Based on linux Mint Debian Edition
 Features:
--Wayland first
+-Wayland only
 -Leaner Installation
 -Customized Installer
--Defualt BTRFS file system
+-Default Btrfs with Ubuntu-style @ and @home subvolumes
 -Nvidia Driver dtection and installation option in the Installer
--ZSTD compression
+-ZSTD level 1 compression
 -Brave Origin as the default browser
 -Better Bird as the default mail client
 -And other options.

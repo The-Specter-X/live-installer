@@ -1060,7 +1060,7 @@ class InstallerWindow:
                     ErrorDialog(_("Installer"), "<b>%s</b>" % _("Please select a root (/) partition."), _(
                         "A root partition is needed to install Linux Mint on.\n\n"
                         " - Mount point: /\n - Recommended size: 30GB\n"
-                        " - Recommended filesystem format: ext4\n"))
+                        " - Recommended filesystem format: btrfs\n"))
                     return
 
                 if self.setup.gptonefi:

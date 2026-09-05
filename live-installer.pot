@@ -546,7 +546,7 @@ msgid ""
 "\n"
 " - Mount point: /\n"
 " - Recommended size: 30GB\n"
-" - Recommended filesystem format: ext4\n"
+" - Recommended filesystem format: btrfs\n"
 msgstr ""
 
 #: usr/lib/live-installer/frontend/gtk_interface.py:989

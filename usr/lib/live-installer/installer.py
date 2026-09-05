@@ -10,6 +10,8 @@ from functools import cmp_to_key
 
 gettext.install("live-installer", "/usr/share/locale")
 
+BTRFS_MOUNT_OPTIONS = "defaults,compress=zstd:1"
+
 class InstallerEngine:
     ''' This is central to the live installer '''
 
@@ -463,7 +465,7 @@ class InstallerEngine:
             print(" --> LVM: Extending LV root")
             os.system(r"lvextend -l 100%FREE /dev/lvmmint/root")
             print(" --> LVM: Formatting LV root")
-            os.system("mkfs.ext4 /dev/mapper/lvmmint-root -FF")
+            os.system("mkfs.btrfs -f /dev/mapper/lvmmint-root")
             print(" --> LVM: Formatting LV swap")
             os.system("mkswap -f /dev/mapper/lvmmint-swap")
             print(" --> LVM: Enabling LV swap")
@@ -471,7 +473,7 @@ class InstallerEngine:
             self.auto_root_partition = "/dev/mapper/lvmmint-root"
             self.auto_swap_partition = "/dev/mapper/lvmmint-swap"
 
-        self.do_mount(self.auto_root_partition, "/target", "ext4", None)
+        self.mount_btrfs_root(self.auto_root_partition, create_home=True)
         if (self.auto_boot_partition is not None):
             os.system("mkdir -p /target/boot")
             self.do_mount(self.auto_boot_partition, "/target/boot", "ext4", None)
@@ -514,23 +516,10 @@ class InstallerEngine:
                     fs = partition.type
                     if fs == "fat32":
                         fs = "vfat"
-                    self.do_mount(partition.path, "/target", fs, None)
                     if fs == "btrfs":
-                        # Create subvolumes for Btrfs
-                        os.system("btrfs subvolume create /target/@")
-                        os.system("btrfs subvolume list -p /target")
-                        print(" ------ Umount btrfs to remount subvolume @")
-                        os.system("umount --force /target")
-                        self.do_mount(partition.path, "/target", fs, "subvol=@")
-                        if not self.setup_has_dedicated_home():
-                            # If there is no dedicated home partition, add a @home subvolume to /
-                            os.system("mkdir -p /target/home")
-                            self.do_mount(partition.path, "/target/home", fs, None)
-                            os.system("btrfs subvolume create /target/home/@home")
-                            os.system("btrfs subvolume list -p /target/home")
-                            print(" ------- Umount btrfs to remount subvolume @home")
-                            os.system("umount --force /target/home")
-                            self.do_mount(partition.path, "/target/home", fs, "subvol=@home")
+                        self.mount_btrfs_root(partition.path, create_home=not self.setup_has_dedicated_home())
+                    else:
+                        self.do_mount(partition.path, "/target", fs, None)
                     break
 
         # Mount the other partitions
@@ -541,14 +530,31 @@ class InstallerEngine:
                 fs = partition.type
                 if fs == "fat16" or fs == "fat32":
                     fs = "vfat"
-                self.do_mount(partition.path, "/target" + partition.mount_as, fs, None)
                 if partition.mount_as == "/home" and fs == "btrfs":
-                    # Dedicated home partition with Btrfs, needs a @home subvolume
+                    self.do_mount(partition.path, "/target/home", fs, BTRFS_MOUNT_OPTIONS)
                     os.system("btrfs subvolume create /target/home/@home")
                     os.system("btrfs subvolume list -p /target/home")
                     print(" ------- Umount btrfs to remount subvolume @home")
                     os.system("umount --force /target/home")
-                    self.do_mount(partition.path, "/target/home", fs, "subvol=@home")
+                    self.do_mount(partition.path, "/target/home", fs, f"{BTRFS_MOUNT_OPTIONS},subvol=@home")
+                else:
+                    self.do_mount(partition.path, "/target" + partition.mount_as, fs, None)
+
+    def mount_btrfs_root(self, device, create_home):
+        """Create and mount an Ubuntu-style Btrfs root layout."""
+        self.do_mount(device, "/target", "btrfs", BTRFS_MOUNT_OPTIONS)
+        os.system("btrfs subvolume create /target/@")
+        if create_home:
+            os.system("btrfs subvolume create /target/@home")
+        os.system("btrfs subvolume list -p /target")
+
+        print(" ------ Umount btrfs to remount subvolume @")
+        os.system("umount --force /target")
+        self.do_mount(device, "/target", "btrfs", f"{BTRFS_MOUNT_OPTIONS},subvol=@")
+
+        if create_home:
+            os.system("mkdir -p /target/home")
+            self.do_mount(device, "/target/home", "btrfs", f"{BTRFS_MOUNT_OPTIONS},subvol=@home")
 
     def get_blkid(self, path):
         uuid = path # If we can't find the UUID we use the path
@@ -582,8 +588,10 @@ class InstallerEngine:
         fstab.write("proc\t/proc\tproc\tdefaults\t0\t0\n")
         if(not self.setup.skip_mount):
             if self.setup.automated:
+                root_uuid = self.get_blkid(self.auto_root_partition)
                 fstab.write("# %s\n" % self.auto_root_partition)
-                fstab.write("%s /  ext4 defaults 0 1\n" % self.get_blkid(self.auto_root_partition))
+                fstab.write("%s\t/\tbtrfs\t%s,subvol=@\t0\t0\n" % (root_uuid, BTRFS_MOUNT_OPTIONS))
+                fstab.write("%s\t/home\tbtrfs\t%s,subvol=@home\t0\t0\n" % (root_uuid, BTRFS_MOUNT_OPTIONS))
                 fstab.write("# %s\n" % self.auto_swap_partition)
                 fstab.write("%s none   swap sw 0 0\n" % self.get_blkid(self.auto_swap_partition))
                 if (self.auto_boot_partition is not None):
@@ -605,9 +613,9 @@ class InstallerEngine:
                         if "ext" in fs:
                             fstab_mount_options = "rw,errors=remount-ro"
                         elif fs == "btrfs" and partition.mount_as == "/":
-                            fstab_mount_options = "defaults,subvol=@"
+                            fstab_mount_options = f"{BTRFS_MOUNT_OPTIONS},subvol=@"
                         elif fs == "btrfs" and partition.mount_as == "/home":
-                            fstab_mount_options = "defaults,subvol=@home"
+                            fstab_mount_options = f"{BTRFS_MOUNT_OPTIONS},subvol=@home"
                         else:
                             fstab_mount_options = "defaults"
 
@@ -619,7 +627,7 @@ class InstallerEngine:
 
                         if fs == "btrfs" and partition.mount_as == "/" and not self.setup_has_dedicated_home():
                             # Special case, if / is btrfs and there is no dedicated /home, add the @home subvolume to /
-                            fstab.write("%s\t%s\t%s\t%s\t%s\t%s\n" % (partition_uuid, "/home", "btrfs", "defaults,subvol=@home", "0", "0"))
+                            fstab.write("%s\t%s\t%s\t%s\t%s\t%s\n" % (partition_uuid, "/home", "btrfs", f"{BTRFS_MOUNT_OPTIONS},subvol=@home", "0", "0"))
         fstab.close()
 
     def write_mtab(self, fstab="/target/etc/fstab", mtab="/target/etc/mtab"):
