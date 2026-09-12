@@ -11,6 +11,7 @@ from functools import cmp_to_key
 gettext.install("live-installer", "/usr/share/locale")
 
 BTRFS_MOUNT_OPTIONS = "defaults,compress=zstd:1"
+NVIDIA_DRIVER_ARCHIVE = "/usr/share/live-installer/nvidia-driver.tar.gz"
 
 class InstallerEngine:
     ''' This is central to the live installer '''
@@ -665,9 +666,11 @@ class InstallerEngine:
                     print("Failed to install Broadcom drivers")
 
             # NVIDIA
-            driver = "/usr/share/live-installer/nvidia-driver.tar.gz"
+            driver = NVIDIA_DRIVER_ARCHIVE
             if os.path.exists(driver):
-                if "install-nvidia" in subprocess.getoutput("cat /proc/cmdline"):
+                cmdline = subprocess.getoutput("cat /proc/cmdline")
+                legacy_install = self.setup.nvidia_gpus is None and "install-nvidia" in cmdline
+                if self.setup.install_nvidia or legacy_install:
                     print(" --> Installing NVIDIA driver")
                     try:
                         self.do_run_in_chroot("tar zxvf %s" % driver)
@@ -847,6 +850,8 @@ class Setup(object):
     lvm = False
     luks = False
     badblocks = False
+    nvidia_gpus = None
+    install_nvidia = False
     target_disk = None
     gptonefi = False
     # Optionally skip all mouting/partitioning for advanced users with custom setups (raid/dmcrypt/etc)
@@ -877,6 +882,8 @@ class Setup(object):
             print("hostname: %s " % self.hostname)
             print("passwords: %s - %s" % (self.password1, self.password2))
             print("grub_device: %s " % self.grub_device)
+            print("nvidia_gpus: %s" % self.nvidia_gpus)
+            print("install_nvidia: %s" % self.install_nvidia)
             print("skip_mount: %s" % self.skip_mount)
             print("automated: %s" % self.automated)
             if self.automated:

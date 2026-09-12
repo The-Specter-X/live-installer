@@ -816,3 +816,51 @@ msgstr ""
 #: usr/share/live-installer/interface.ui.h:1
 msgid " "
 msgstr ""
+
+#: usr/lib/live-installer/main.py:364
+msgid "Graphics driver"
+msgstr ""
+
+#: usr/lib/live-installer/main.py:364
+msgid "Choose the NVIDIA graphics driver"
+msgstr ""
+
+#: usr/lib/live-installer/main.py:454
+msgid "NVIDIA graphics hardware was detected:"
+msgstr ""
+
+#: usr/lib/live-installer/main.py:457
+msgid "Install the NVIDIA driver (recommended)"
+msgstr ""
+
+#: usr/lib/live-installer/main.py:460
+msgid ""
+"Provides full graphics performance and Wayland support. This driver contains "
+"proprietary components."
+msgstr ""
+
+#: usr/lib/live-installer/main.py:463
+msgid "Use the default Nouveau driver"
+msgstr ""
+
+#: usr/lib/live-installer/main.py:466
+msgid "You can install the NVIDIA driver later with Driver Manager."
+msgstr ""
+
+#: usr/lib/live-installer/main.py:469
+msgid ""
+"The NVIDIA driver packages are not included in this installation image, so "
+"the default driver will be used."
+msgstr ""
+
+#: usr/lib/live-installer/main.py:1241
+msgid "NVIDIA driver"
+msgstr ""
+
+#: usr/lib/live-installer/main.py:1241
+msgid "Nouveau driver"
+msgstr ""
+
+#: usr/lib/live-installer/main.py:1242
+msgid "Graphics driver: "
+msgstr ""

@@ -1,8 +1,9 @@
 #!/usr/bin/python3
 
-from installer import InstallerEngine, Setup
+from installer import InstallerEngine, Setup, NVIDIA_DRIVER_ARCHIVE
 from dialogs import MessageDialog, QuestionDialog, ErrorDialog, WarningDialog, ConfirmDialog
 import distro
+import hardware
 import timezones
 import partitioning
 import gettext
@@ -82,6 +83,11 @@ class InstallerWindow:
         self.setup.oem_mode = oem_mode
         self.setup.oem_config = oem_config
         self.setup.is_mint = IS_MINT
+        self.setup.nvidia_gpus = hardware.detect_nvidia_gpus()
+        self.nvidia_driver_available = os.path.exists(NVIDIA_DRIVER_ARCHIVE)
+        self.setup.install_nvidia = bool(
+            self.setup.nvidia_gpus and self.nvidia_driver_available and not oem_config
+        )
         self.installer = InstallerEngine(self.setup)
 
         self.resource_dir = '/usr/share/live-installer/'
@@ -117,10 +123,11 @@ class InstallerWindow:
          self.PAGE_TYPE,
          self.PAGE_PARTITIONS,
          self.PAGE_ADVANCED,
+         self.PAGE_NVIDIA,
          self.PAGE_OVERVIEW,
          self.PAGE_CUSTOMWARNING,
          self.PAGE_CUSTOMPAUSED,
-         self.PAGE_INSTALL) = range(11)
+         self.PAGE_INSTALL) = range(12)
 
         # set the button events (wizard_cb)
         self.builder.get_object("button_next").connect("clicked", self.wizard_cb, False)
@@ -213,6 +220,17 @@ class InstallerWindow:
         # install Grub by default
         grub_check.set_active(True)
         grub_box.set_sensitive(True)
+
+        # Offer the offline NVIDIA driver only when NVIDIA display hardware is present.
+        nvidia_install = self.builder.get_object("radio_nvidia_install")
+        nvidia_default = self.builder.get_object("radio_nvidia_default")
+        nvidia_install.connect("toggled", self.assign_nvidia_options)
+        nvidia_install.set_sensitive(self.nvidia_driver_available)
+        nvidia_install.set_active(self.setup.install_nvidia)
+        nvidia_default.set_active(not self.setup.install_nvidia)
+        nvidia_warning = self.builder.get_object("label_nvidia_unavailable")
+        nvidia_warning.set_no_show_all(True)
+        nvidia_warning.set_visible(not self.nvidia_driver_available)
 
         # kb models
         cell = Gtk.CellRendererText()
@@ -335,7 +353,7 @@ class InstallerWindow:
         self.builder.get_object("headerbar").set_title(title)
 
         # Header
-        self.wizard_pages = list(range(11))
+        self.wizard_pages = list(range(12))
         self.wizard_pages[self.PAGE_LANGUAGE] = WizardPage(_("Language"), "preferences-desktop-locale-symbolic", _("What language would you like to use?"))
         self.wizard_pages[self.PAGE_TIMEZONE] = WizardPage(_("Timezone"), "mark-location-symbolic", _("Where are you?"))
         self.wizard_pages[self.PAGE_KEYBOARD] = WizardPage(_("Keyboard layout"), "preferences-desktop-keyboard-symbolic", _("What is your keyboard layout?"))
@@ -343,6 +361,7 @@ class InstallerWindow:
         self.wizard_pages[self.PAGE_TYPE] = WizardPage(_("Installation Type"), "drive-harddisk-system-symbolic", _("Where do you want to install %s?") % DISTRIBUTION)
         self.wizard_pages[self.PAGE_PARTITIONS] = WizardPage(_("Partitioning"), "drive-harddisk-system-symbolic", _("Where do you want to install %s?") % DISTRIBUTION)
         self.wizard_pages[self.PAGE_ADVANCED] = WizardPage(_("Advanced options"), "preferences-system-symbolic", _("Configure the boot menu"))
+        self.wizard_pages[self.PAGE_NVIDIA] = WizardPage(_("Graphics driver"), "video-display-symbolic", _("Choose the NVIDIA graphics driver"))
         self.wizard_pages[self.PAGE_OVERVIEW] = WizardPage(_("Summary"), "object-select-symbolic", _("Check that everything is correct"))
         self.wizard_pages[self.PAGE_INSTALL] = WizardPage(_("Installing"), "system-run-symbolic", "Please wait...")
         self.wizard_pages[self.PAGE_CUSTOMWARNING] = WizardPage(_("Expert mode"), "drive-harddisk-system-symbolic", "")
@@ -428,6 +447,27 @@ class InstallerWindow:
 
         # Advanced page
         self.builder.get_object("checkbutton_grub").set_label(_("Install the GRUB boot menu on:"))
+
+        # NVIDIA page
+        detected_gpus = "\n".join("• %s" % gpu for gpu in self.setup.nvidia_gpus)
+        self.builder.get_object("label_nvidia_detected").set_text(
+            _("NVIDIA graphics hardware was detected:") + "\n" + detected_gpus
+        )
+        self.builder.get_object("radio_nvidia_install").set_label(
+            _("Install the NVIDIA driver (recommended)")
+        )
+        self.builder.get_object("label_nvidia_install_details").set_text(
+            _("Provides full graphics performance and Wayland support. This driver contains proprietary components.")
+        )
+        self.builder.get_object("radio_nvidia_default").set_label(
+            _("Use the default Nouveau driver")
+        )
+        self.builder.get_object("label_nvidia_default_details").set_text(
+            _("You can install the NVIDIA driver later with Driver Manager.")
+        )
+        self.builder.get_object("label_nvidia_unavailable").set_text(
+            _("The NVIDIA driver packages are not included in this installation image, so the default driver will be used.")
+        )
 
         # Custom install warning
         self.builder.get_object("label_custom_install_directions_1").set_label(_("You selected to manage your partitions manually, this feature is for ADVANCED USERS ONLY."))
@@ -628,6 +668,13 @@ class InstallerWindow:
         self.validate_entry(self.builder.get_object("entry_passphrase2"), PASSWORD_REGEX, PASSWORD_LENGTHS, check_match=self.setup.passphrase1, also_true=self.setup.luks)
 
         self.update_disk_selection_next()
+        self.setup.print_setup()
+
+    def assign_nvidia_options(self, widget=None):
+        install_selected = self.builder.get_object("radio_nvidia_install").get_active()
+        self.setup.install_nvidia = bool(
+            self.setup.nvidia_gpus and self.nvidia_driver_available and install_selected
+        )
         self.setup.print_setup()
 
     def update_disk_selection_next(self):
@@ -1099,6 +1146,14 @@ class InstallerWindow:
                 partitioning.build_grub_partitions()
                 self.activate_page(self.PAGE_ADVANCED)
             elif(sel == self.PAGE_ADVANCED):
+                if self.setup.nvidia_gpus:
+                    self.activate_page(self.PAGE_NVIDIA)
+                    return
+                self.activate_page(self.PAGE_OVERVIEW)
+                self.show_overview()
+                self.builder.get_object("treeview_overview").expand_all()
+                self.builder.get_object("button_next").set_label(_("Install"))
+            elif(sel == self.PAGE_NVIDIA):
                 self.activate_page(self.PAGE_OVERVIEW)
                 self.show_overview()
                 self.builder.get_object("treeview_overview").expand_all()
@@ -1139,8 +1194,12 @@ class InstallerWindow:
             if(sel == self.PAGE_OVERVIEW):
                 if self.oem_config:
                     self.activate_page(self.PAGE_USER)
+                elif self.setup.nvidia_gpus:
+                    self.activate_page(self.PAGE_NVIDIA)
                 else:
                     self.activate_page(self.PAGE_ADVANCED)
+            elif(sel == self.PAGE_NVIDIA):
+                self.activate_page(self.PAGE_ADVANCED)
             elif(sel == self.PAGE_ADVANCED):
                 if (self.setup.skip_mount):
                     self.activate_page(self.PAGE_CUSTOMWARNING)
@@ -1178,6 +1237,9 @@ class InstallerWindow:
         model.append(top, (_("Home encryption: ") + bold(_("enabled") if self.setup.ecryptfs else _("disabled")),))
         top = model.append(None, (_("System settings"),))
         model.append(top, (_("Computer's name: ") + bold(self.setup.hostname),))
+        if self.setup.nvidia_gpus:
+            graphics_driver = _("NVIDIA driver") if self.setup.install_nvidia else _("Nouveau driver")
+            model.append(top, (_("Graphics driver: ") + bold(graphics_driver),))
 
         if not self.oem_config:
             top = model.append(None, (_("Filesystem operations"),))
