@@ -415,7 +415,7 @@ def get_device_naming_scheme_prefix(device_name):
     else:
         return ""
 
-def full_disk_format(device, create_boot=False, create_swap=True):
+def full_disk_format(device, create_boot=False, create_swap=False):
     # If some LVM volumes use the selected device, remove them.
     try:
         output = subprocess.getoutput("pvs --reportformat json")

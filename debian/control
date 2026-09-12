@@ -14,6 +14,7 @@ Depends: ${misc:Depends}, gir1.2-webkit2-4.1
   , python3-distro
   , python3-parted, parted, gparted
   , btrfs-progs
+  , systemd-zram-generator
   , python3-gi-cairo
   , python3-pil
   , isoquery

@@ -417,18 +417,18 @@ class InstallerEngine:
         else:
             if self.setup.gptonefi:
                 # EFI
-                # sdx1=EFI, sdx2=SWAP, sdx3=ROOT
+                # sdx1=EFI, sdx2=ROOT
                 self.auto_efi_partition  = self.setup.disk + partition_prefix + "1"
                 self.auto_boot_partition = None
-                self.auto_swap_partition = self.setup.disk + partition_prefix + "2"
-                self.auto_root_partition = self.setup.disk + partition_prefix + "3"
+                self.auto_swap_partition = None
+                self.auto_root_partition = self.setup.disk + partition_prefix + "2"
             else:
                 # BIOS:
-                # sdx1=SWAP, sdx2=ROOT
+                # sdx1=ROOT
                 self.auto_efi_partition  = None
                 self.auto_boot_partition = None
-                self.auto_swap_partition = self.setup.disk + partition_prefix + "1"
-                self.auto_root_partition = self.setup.disk + partition_prefix + "2"
+                self.auto_swap_partition = None
+                self.auto_root_partition = self.setup.disk + partition_prefix + "1"
 
         self.auto_root_physical_partition = self.auto_root_partition
 
@@ -460,18 +460,12 @@ class InstallerEngine:
             os.system("vgcreate -y lvmmint %s" % self.auto_root_partition)
             print(" --> LVM: Creating LV root")
             os.system("lvcreate -y -n root -L 1GB lvmmint")
-            print(" --> LVM: Creating LV swap")
-            os.system("lvcreate -y -n swap -L 2GB lvmmint")
             print(" --> LVM: Extending LV root")
             os.system(r"lvextend -l 100%FREE /dev/lvmmint/root")
             print(" --> LVM: Formatting LV root")
             os.system("mkfs.btrfs -f /dev/mapper/lvmmint-root")
-            print(" --> LVM: Formatting LV swap")
-            os.system("mkswap -f /dev/mapper/lvmmint-swap")
-            print(" --> LVM: Enabling LV swap")
-            os.system("swapon /dev/mapper/lvmmint-swap")
             self.auto_root_partition = "/dev/mapper/lvmmint-root"
-            self.auto_swap_partition = "/dev/mapper/lvmmint-swap"
+            self.auto_swap_partition = None
 
         self.mount_btrfs_root(self.auto_root_partition, create_home=True)
         if (self.auto_boot_partition is not None):
@@ -592,8 +586,9 @@ class InstallerEngine:
                 fstab.write("# %s\n" % self.auto_root_partition)
                 fstab.write("%s\t/\tbtrfs\t%s,subvol=@\t0\t0\n" % (root_uuid, BTRFS_MOUNT_OPTIONS))
                 fstab.write("%s\t/home\tbtrfs\t%s,subvol=@home\t0\t0\n" % (root_uuid, BTRFS_MOUNT_OPTIONS))
-                fstab.write("# %s\n" % self.auto_swap_partition)
-                fstab.write("%s none   swap sw 0 0\n" % self.get_blkid(self.auto_swap_partition))
+                if self.auto_swap_partition is not None:
+                    fstab.write("# %s\n" % self.auto_swap_partition)
+                    fstab.write("%s none   swap sw 0 0\n" % self.get_blkid(self.auto_swap_partition))
                 if (self.auto_boot_partition is not None):
                     fstab.write("# %s\n" % self.auto_boot_partition)
                     fstab.write("%s /boot  ext4 defaults 0 1\n" % self.get_blkid(self.auto_boot_partition))
@@ -700,8 +695,7 @@ class InstallerEngine:
             with open("/target/etc/default/grub.d/61_live-installer.cfg", "w") as f:
                 f.write("#! /bin/sh\n")
                 f.write("set -e\n\n")
-                f.write('GRUB_CMDLINE_LINUX="cryptdevice=%s:lvmmint root=/dev/mapper/lvmmint-root resume=/dev/mapper/lvmmint-swap"\n' % self.get_blkid(self.auto_root_physical_partition))
-            self.do_run_in_chroot("echo 'w /sys/power/disk - - - - shutdown' > /etc/tmpfiles.d/encrypted-swap.conf")
+                f.write('GRUB_CMDLINE_LINUX="cryptdevice=%s:lvmmint root=/dev/mapper/lvmmint-root"\n' % self.get_blkid(self.auto_root_physical_partition))
 
         # write MBR (grub)
         print(" --> Configuring Grub")
